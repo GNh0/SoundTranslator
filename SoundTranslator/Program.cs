@@ -5,6 +5,7 @@ using System.Reflection;
 using NAudio.Wave;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.IO;
 
 class Program
 {
@@ -21,7 +22,7 @@ class Program
         static bool _isRunning = true;
         static Translator translator = new Translator("DeepL API Key");
 
-
+        //여러가지 SampleRate값 테스트
         static int[] samperates = new int[] { 16000, 32000, 64000, 128000, 256000, 384000 };
 
         static void Main(string[] args)
@@ -34,56 +35,64 @@ class Program
             using (var capture = new WasapiLoopbackCapture())
             {
 
-                var rec = InitModels($"{Environment.CurrentDirectory}", samperates[5]);
-                capture.WaveFormat = new WaveFormat(samperates[5], 16, 1);  //설정최대값,VoskRecognizer값과 매칭
+                //var rec = InitModels($"{Environment.CurrentDirectory}", samperates[5]);
 
-                /*
-                capture.DataAvailable += async (sender, e) =>
+
+                using (var spkModel = new SpkModel(Path.Combine($"{Environment.CurrentDirectory}", spkName)))
+                using (var model = new Model(Path.Combine($"{Environment.CurrentDirectory}", ModelName)))
                 {
-                    if (_rec.AcceptWaveform(e.Buffer, e.BytesRecorded))
+                    var rec = new VoskRecognizer(model, (float)samperates[1]);
+                    capture.WaveFormat = new WaveFormat(samperates[1], 16, 1);  //설정최대값,VoskRecognizer값과 매칭
+
+                    /*
+                    capture.DataAvailable += async (sender, e) =>
                     {
-                        string result = _rec.Result();
-                        var resultObj = System.Text.Json.JsonSerializer.Deserialize<ResultObject>(result);
-                        string recognizedText = resultObj.text;
-                        File.AppendAllText(outputFilePath, recognizedText + Environment.NewLine);
-                        Console.WriteLine($"인식된 텍스트: {recognizedText}");
-                        // DeepL을 사용한 번역
-                        string translatedText = await TranslateText(translator, recognizedText, "KO");
-
-                        Console.WriteLine($"번역된 텍스트: {translatedText}");
-                        File.AppendAllText(TransoutputFilePath, $"{recognizedText} -> {translatedText}{Environment.NewLine}");
-                    }
-                };
-                */
-
-                
-                capture.DataAvailable += async (sender, e) =>
-                {
-                   
-                    if (rec.AcceptWaveform(e.Buffer, e.BytesRecorded))
-                    {
-                        string result = rec.Result();
-                        var resultObj = System.Text.Json.JsonSerializer.Deserialize<ResultObject>(result);
-                        string recognizedText = resultObj.text;
-
-                        if (!string.IsNullOrWhiteSpace(recognizedText))
+                        if (_rec.AcceptWaveform(e.Buffer, e.BytesRecorded))
                         {
-                            currentSentence.Append(recognizedText + " ");
-                            lastSpeechTime = DateTime.Now;
+                            string result = _rec.Result();
+                            var resultObj = System.Text.Json.JsonSerializer.Deserialize<ResultObject>(result);
+                            string recognizedText = resultObj.text;
+                            File.AppendAllText(outputFilePath, recognizedText + Environment.NewLine);
+                            Console.WriteLine($"인식된 텍스트: {recognizedText}");
+                            // DeepL을 사용한 번역
+                            string translatedText = await TranslateText(translator, recognizedText, "KO");
 
-                            // 영어 문장 구분을 위한 조건
-                            if (currentSentence.Length > 150)
+                            Console.WriteLine($"번역된 텍스트: {translatedText}");
+                            File.AppendAllText(TransoutputFilePath, $"{recognizedText} -> {translatedText}{Environment.NewLine}");
+                        }
+                    };
+                    */
+
+
+                    capture.DataAvailable += async (sender, e) =>
+                    {
+
+                        if (rec.AcceptWaveform(e.Buffer, e.BytesRecorded))
+                        {
+                            string result = rec.Result();
+                            var resultObj = System.Text.Json.JsonSerializer.Deserialize<ResultObject>(result);
+                            string recognizedText = resultObj.text;
+
+                            if (!string.IsNullOrWhiteSpace(recognizedText))
+                            {
+                                currentSentence.Append(recognizedText + " ");
+                                lastSpeechTime = DateTime.Now;
+
+                                // 영어 문장 구분을 위한 조건
+                                if (currentSentence.Length > 100)
+                                {
+                                    await ProcessAndTranslateSentence(outputFilePath, TransoutputFilePath, translator);
+                                }
+                            }
+                            else if ((DateTime.Now - lastSpeechTime).TotalMilliseconds > SILENCE_MS) //사운드가 캡쳐 지정한 시간만큼 안될 때
                             {
                                 await ProcessAndTranslateSentence(outputFilePath, TransoutputFilePath, translator);
                             }
                         }
-                        else if ((DateTime.Now - lastSpeechTime).TotalMilliseconds > SILENCE_MS) //사운드가 인식 안될 때
-                        {
-                            await ProcessAndTranslateSentence(outputFilePath, TransoutputFilePath, translator);
-                        }
-                    }
-                };
+                    };
 
+
+                }
 
 
                 capture.StartRecording();
@@ -113,20 +122,7 @@ class Program
             }
         }
 
-        static VoskRecognizer InitModels(string path,int sampleate)
-        {
-            string spkpath = Path.Combine(path, spkName);
-            string modelpath = Path.Combine(path, smallName);
-            var spkModel = new SpkModel(spkpath);
-            var model = new Model(modelpath);
-            var rec = new VoskRecognizer(model, (float)sampleate);
-            rec.SetSpkModel(spkModel);
-
-            return rec;
-        }
-        
-
-
+ 
 
         private static StringBuilder currentSentence = new StringBuilder();
         private static DateTime lastSpeechTime = DateTime.Now;
